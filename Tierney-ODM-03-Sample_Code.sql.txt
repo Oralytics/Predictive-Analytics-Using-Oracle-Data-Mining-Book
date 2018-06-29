@@ -1,0 +1,22 @@
+#
+# Predictive Analytics using Oracle Data Miner
+#        Written by :    Brendan Tierney
+#
+# Published by : McGraw-Hill / Oracle Press
+#
+# Chapter 3 - Installing and setting up
+#
+
+-- Create a table space for your ODM work
+CREATE TABLESPACE datamining
+DATAFILE '/u01/app/oracle/oradata/cdb12c/pdb12c/datamining.dbf'
+SIZE 500M AUTOEXTEND ON;
+
+
+-- Create and ODM user
+create user DMUSER identified by DMUSER
+default tablespace DATAMINING
+temporary tablespace TEMP
+quota unlimited on DATAMINING;
+
+grant CONNECT, RESOURCE to DMUSER;

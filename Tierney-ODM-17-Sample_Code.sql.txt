@@ -1,0 +1,200 @@
+#
+# Predictive Analytics using Oracle Data Miner
+#        Written by :    Brendan Tierney
+#
+# Published by : McGraw-Hill / Oracle Press
+#
+# Chapter 17 - Regression
+
+-- View existing Regression models
+column model_name format a20 
+column mining_function format a15
+column algorithm format a25
+SELECT model_name, 
+       mining_function,  
+       algorithm,  
+       build_duration,  
+       model_size 
+FROM  ALL_MINING_MODELS
+WHERE mining_function = 'REGRESSION';
+
+
+column setting_value format a30
+SELECT setting_name, 
+       setting_value, 
+       setting_type
+FROM  all_mining_model_settings
+WHERE model_name = 'REGR_SVM_1_25';
+
+
+column attribute_name format a25
+column target format a6
+SELECT attribute_name,
+       attribute_type,
+       usage_type,
+       target  
+from  all_mining_model_attributes
+where model_name = 'REGR_SVM_1_25';
+
+
+-- create the settings table for a Regression model
+CREATE TABLE demo_regression_settings 
+( setting_name  VARCHAR2(30),
+  setting_value VARCHAR2(4000));
+
+-- insert the settings records for Regression
+-- Support Vector Machine algorithm using the Linear kernel
+-- ADP is turned on. By default ADP is turned off.
+BEGIN
+  INSERT INTO demo_regression_settings (setting_name, setting_value)
+  VALUES (dbms_data_mining.algo_name, dbms_data_mining.algo_support_vector_machines);
+  INSERT INTO demo_regression_settings (setting_name, setting_value)
+  VALUES (dbms_data_mining.svms_kernel_function, dbms_data_mining.svms_linear);
+
+  INSERT INTO demo_regression_settings (setting_name, setting_value)
+  VALUES (dbms_data_mining.prep_auto,dbms_data_mining.prep_auto_on);
+END;
+
+column setting_name format a30
+column setting_value format a30
+SELECT *
+FROM   demo_regression_settings;
+
+
+CREATE or REPLACE VIEW  INSUR_CUST_LTV_SAMPLE_V
+as SELECT CUSTOMER_ID,
+	LAST, 
+	FIRST, 
+	STATE, 
+	REGION, 
+	SEX, 
+	PROFESSION, 
+	BUY_INSURANCE, 
+	AGE, 
+	HAS_CHILDREN, 
+	SALARY, 
+	N_OF_DEPENDENTS, 
+	CAR_OWNERSHIP, 
+	HOUSE_OWNERSHIP, 
+	TIME_AS_CUSTOMER, 
+	MARITAL_STATUS, 
+	CREDIT_BALANCE, 
+	BANK_FUNDS, 
+	CHECKING_AMOUNT, 
+	MONEY_MONTLY_OVERDRAWN, 
+	T_AMOUNT_AUTOM_PAYMENTS, 
+	MONTHLY_CHECKS_WRITTEN, 
+	MORTGAGE_AMOUNT, 
+	N_TRANS_ATM, 
+	N_MORTGAGES, 
+	N_TRANS_TELLER, 
+	CREDIT_CARD_LIMITS, 
+	N_TRANS_KIOSK, 
+	N_TRANS_WEB_BANK, 
+	LTV 
+FROM INSUR_CUST_LTV_SAMPLE;
+
+
+-- Create Regression model
+BEGIN 
+   DBMS_DATA_MINING.CREATE_MODEL( 
+      model_name 			=> 'DEMO_REGRESSION_MODEL', 
+      mining_function	     	=> dbms_data_mining.regression, 
+      data_table_name 		=> 'INSUR_CUST_LTV_SAMPLE_V', 
+      case_id_column_name 	=> 'CUSTOMER_ID', 
+      target_column_name 	=> 'LTV', 
+      settings_table_name 	=> 'demo_regression_settings'); 
+END;
+
+column model_name format a25
+column setting_name format a22
+column setting_value format a28
+SELECT model_name,
+       setting_name, 
+       setting_value, 
+       setting_type
+FROM  all_mining_model_settings
+WHERE model_name in ('DEMO_REGRESSION_MODEL');
+
+
+-- insert the settings records for Regression
+-- Support Vector Machine algorithm using the Linear kernel
+-- ADP is turned on. By default ADP is turned off.
+-- Kernel Cache Size is set to 10,000,000
+delete from demo_regression_settings;
+BEGIN
+  INSERT INTO demo_regression_settings (setting_name, setting_value)
+  VALUES (dbms_data_mining.algo_name, dbms_data_mining.algo_support_vector_machines);
+  INSERT INTO demo_regression_settings (setting_name, setting_value)
+  VALUES (dbms_data_mining.svms_kernel_function, dbms_data_mining.svms_gaussian);
+
+  INSERT INTO demo_regression_settings (setting_name, setting_value)
+  VALUES (dbms_data_mining.prep_auto, dbms_data_mining.prep_auto_on);
+  INSERT INTO demo_regression_settings (setting_name, setting_value)
+  VALUES (dbms_data_mining.SVMS_KERNEL_CACHE_SIZE, 10000000);
+END;
+
+
+-- View Global statistics
+SELECT *
+FROM TABLE(DBMS_DATA_MINING.GET_MODEL_DETAILS_GLOBAL('REGR_GLM_1_25'));
+
+
+
+column a_name format a25
+column a_value format a20
+select attribute_name   a_name, 
+       attribute_value  a_value, 
+       coefficient
+from   TABLE(DBMS_DATA_MINING.GET_MODEL_DETAILS_GLM('REGR_GLM_1_25'))
+order by attribute_name;
+
+
+column class format a15
+column a_name a15
+column a_value a20
+select b.attribute_name   a_name, 
+       b.attribute_value  a_value, 
+       b.coefficient
+from   TABLE(DBMS_DATA_MINING.GET_MODEL_DETAILS_SVM('DEMO_REGRESSION_MODEL')) a,
+       TABLE(a.attribute_set) b
+order by attribute_name;
+
+
+
+create or replace view demo_regression_residual
+as
+select PREDICTION(regr_glm_1_25 using *)  prediction,
+       (LTV - PREDICTION(regr_glm_1_25 using *)) residual
+from   insur_cust_ltv_sample;
+
+select * from demo_regression_residual;
+
+
+column customer_id format a15
+select customer_id,
+       prediction(demo_regression_model USING *) LTV_Prediction
+from   insur_cust_ltv_sample
+where  rownum <= 10;
+
+
+SELECT prediction(DEMO_REGRESSION_MODEL
+           USING 'MI' AS STATE, 
+                 'M' AS SEX, 
+                 '70' AS AGE, 
+                 '2' AS N_OF_DEPENDENTS, 
+                 '0' AS MORTGAGE_AMOUNT)  LTV_Prediction
+FROM dual;
+
+
+BEGIN
+   dbms_data_mining.APPLY(model_name          => 'DEMO_REGRESSION_MODEL',
+                          data_table_name     => 'INSUR_CUST_LTV_SAMPLE',
+                          case_id_column_name => 'CUSTOMER_ID',
+                          result_table_name   => 'DEMO_LTV_PREDICTION'); 
+END; 
+
+column customer_id format a15
+select * 
+from   demo_ltv_prediction 
+where rownum <=10;

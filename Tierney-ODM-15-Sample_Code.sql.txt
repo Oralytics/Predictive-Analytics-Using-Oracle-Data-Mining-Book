@@ -1,0 +1,232 @@
+#
+# Predictive Analytics using Oracle Data Miner
+#        Written by :    Brendan Tierney
+#
+# Published by : McGraw-Hill / Oracle Press
+#
+# Chapter 15 - Classification
+
+-- create the settings table for a Decision Tree model
+CREATE TABLE demo_class_dt_settings 
+( setting_name  VARCHAR2(30),
+  setting_value VARCHAR2(4000));
+
+-- insert the settings records for a Decision Tree
+-- Decision Tree algorithm. By Default Naive Bayes is used for classification
+-- ADP is turned on. By default ADP is turned off.
+BEGIN
+  INSERT INTO demo_class_dt_settings (setting_name, setting_value)
+  values (dbms_data_mining.algo_name, dbms_data_mining.algo_decision_tree);
+	
+  INSERT INTO demo_class_dt_settings (setting_name, setting_value)
+  VALUES (dbms_data_mining.prep_auto,dbms_data_mining.prep_auto_on);
+END;
+
+
+-- View model settings
+SELECT *
+FROM   demo_class_dt_settings;
+
+-- Create Decision Tree model
+BEGIN 
+   DBMS_DATA_MINING.CREATE_MODEL( 
+      model_name 		=> 'DEMO_CLASS_DT_MODEL', 
+      mining_function 	=> dbms_data_mining.classification, 
+      data_table_name 	=> 'mining_data_build_v', 
+      case_id_column_name 	=> 'cust_id', 
+      target_column_name 	=> 'affinity_card', 
+      settings_table_name 	=> 'demo_class_dt_settings'); 
+END;
+
+-- Create a SVM model
+-- create the settings table for a Support Vector Machine model
+CREATE TABLE demo_class_svm_settings 
+( setting_name  VARCHAR2(30),
+  setting_value VARCHAR2(4000));
+
+-- insert the settings records for a Support Vector Machine
+-- Support Vector Machine algorithm. By Default Naive Bayes is used for classification
+-- ADP is turned on. By default ADP is turned off.
+BEGIN
+  INSERT INTO demo_class_svm_settings (setting_name, setting_value)
+  values (dbms_data_mining.algo_name, dbms_data_mining.algo_support_vector_machines);
+
+  INSERT INTO demo_class_svm_settings (setting_name, setting_value)
+  VALUES (dbms_data_mining.prep_auto,dbms_data_mining.prep_auto_on);
+END;
+
+BEGIN 
+   DBMS_DATA_MINING.CREATE_MODEL( 
+      model_name 			=> 'DEMO_CLASS_SVM_MODEL', 
+      mining_function 		=> dbms_data_mining.classification, 
+      data_table_name 		=> 'mining_data_build_v', 
+      case_id_column_name 	=> 'cust_id', 
+      target_column_name 	=> 'affinity_card', 
+      settings_table_name 	=> 'demo_class_svm_settings'); 
+END;
+
+
+-- List all the Classification models
+SELECT model_name, 
+       algorithm, 
+       build_duration, 
+       model_size 
+FROM ALL_MINING_MODELS
+WHERE mining_function = 'CLASSIFICATION';
+
+-- View model settings
+SELECT setting_name, 
+       setting_value, 
+       setting_type 
+FROM  all_mining_model_settings 
+WHERE model_name = 'DEMO_CLASS_DT_MODEL';
+
+
+-- View model attributes
+SELECT attribute_name, 
+       attribute_type, 
+       usage_type, 
+       target 
+from  all_mining_model_attributes 
+where model_name = 'DEMO_CLASS_DT_MODEL';  
+
+
+CREATE OR REPLACE VIEW demo_class_dt_test_results
+AS
+SELECT cust_id,
+       prediction(DEMO_CLASS_DT_MODEL USING *)  predicted_value,
+       prediction_probability(DEMO_CLASS_DT_MODEL USING *) probability
+FROM   mining_data_test_v;
+
+SELECT * 
+FROM demo_class_dt_test_results
+WHERE rownum <=8;
+
+
+-- Confusion Matrix
+set serveroutput on
+
+DECLARE
+   v_accuracy NUMBER;
+BEGIN
+   DBMS_DATA_MINING.COMPUTE_CONFUSION_MATRIX (
+      accuracy 			    => v_accuracy,
+      apply_result_table_name	    => 'demo_class_dt_test_results',
+      target_table_name 	    => 'mining_data_test_v',
+      case_id_column_name 	    => 'cust_id',
+      target_column_name 	    => 'affinity_card',
+      confusion_matrix_table_name => 'demo_class_dt_confusion_matrix',
+      score_column_name 	    => 'PREDICTED_VALUE',
+      score_criterion_column_name => 'PROBABILITY',
+      cost_matrix_table_name	    => null,
+      apply_result_schema_name    => null,
+      target_schema_name 	    => null,
+      cost_matrix_schema_name     => null,
+      score_criterion_type 	    => 'PROBABILITY');
+   DBMS_OUTPUT.PUT_LINE('**** MODEL ACCURACY ****: ' || ROUND(v_accuracy,4));
+END;
+
+
+SELECT * 
+FROM   demo_class_dt_confusion_matrix;
+
+
+-- Create Lift Chart information
+BEGIN
+   DBMS_DATA_MINING.COMPUTE_LIFT (
+      apply_result_table_name  => 'demo_class_dt_test_results',
+      target_table_name 	 => 'mining_data_test_v',
+      case_id_column_name 	 => 'cust_id',
+      target_column_name 	 => 'affinity_card',
+      lift_table_name 		 => 'DEMO_CLASS_DT_LIFT',
+      positive_target_value 	 => '1',
+      score_column_name 	 => 'PREDICTED_VALUE',
+      score_criterion_column_name => 'PROBABILITY',
+      num_quantiles 		 => 10,
+      cost_matrix_table_name 	 => null,
+      apply_result_schema_name => null,
+      target_schema_name 	 => null,
+      cost_matrix_schema_name  => null,
+      score_criterion_type 	 => 'PROBABILITY');
+END;
+
+
+SELECT quantile_number, 
+       probability_threshold, 
+       gain_cumulative,
+       quantile_total_count
+FROM   demo_class_dt_lift;
+
+
+-- Create ROC details
+set serveroutput on
+
+DECLARE
+   v_area_under_curve NUMBER;
+BEGIN
+   DBMS_DATA_MINING.COMPUTE_ROC (
+      roc_area_under_curve 	=> v_area_under_curve,
+      apply_result_table_name => 'demo_class_dt_test_results',
+      target_table_name 	=> 'mining_data_test_v',
+      case_id_column_name 	=> 'cust_id',
+      target_column_name 	=> 'affinity_card',
+      roc_table_name 		=> 'DEMO_CLASS_DT_ROC',
+      positive_target_value  	=> '1',
+      score_column_name 	=> 'PREDICTED_VALUE',
+      score_criterion_column_name => 'PROBABILITY');
+   DBMS_OUTPUT.PUT_LINE('**** AREA UNDER ROC CURVE ****: ' ||
+       ROUND(v_area_under_curve,4));
+END;
+
+SELECT probability, 
+       true_positive_fraction, 
+       false_positive_fraction
+FROM   demo_class_dt_roc;
+
+
+-- Apply the model
+SELECT cust_id, PREDICTION(DEMO_CLASS_DT_MODEL USING *) 
+FROM   mining_data_apply_v
+WHERE  rownum <= 8;
+
+SELECT cust_id 
+FROM   mining_data_apply_v
+WHERE  PREDICTION(DEMO_CLASS_DT_MODEL USING *) = 1 
+AND    rownum <= 8;
+
+SELECT cust_id, 
+       PREDICTION(DEMO_CLASS_DT_MODEL USING *) Predicted_Value,
+       PREDICTION_PROBABILITY(DEMO_CLASS_DT_MODEL USING *) Prob
+FROM   mining_data_apply_v
+WHERE  rownum <= 8;
+
+-- What-if analysis using the Machine Learning model
+SELECT prediction(DEMO_CLASS_DT_MODEL
+           USING 'F' AS cust_gender, 
+                 62 AS age, 
+      'Widowed' AS cust_marital_status, 
+           'Exec.' as occupation, 
+           2 as household_size, 
+           3 as yrs_residence)  Predicted_Value,
+       prediction_probability(DEMO_CLASS_DT_MODEL, 0
+           USING 'F' AS cust_gender, 
+                 62 AS age, 
+      'Widowed' AS cust_marital_status, 
+           'Exec.' as occupation, 
+           2 as household_size, 
+           3 as yrs_residence) Predicted_Prob
+FROM dual;
+
+
+-- Apply model in Batch model
+BEGIN
+   dbms_data_mining.APPLY(model_name          => 'DEMO_CLASS_DT_MODEL',
+                          data_table_name     => 'MINING_DATA_APPLY_V',
+                          case_id_column_name => 'CUST_ID',
+                          result_table_name   => 'DEMO_DT_DATA_SCORED'); 
+END; 
+
+SELECT * 
+FROM   demo_dt_data_scored
+where  rownum <= 10;
+

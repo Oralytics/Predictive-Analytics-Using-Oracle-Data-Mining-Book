@@ -1,0 +1,246 @@
+#
+# Predictive Analytics using Oracle Data Miner
+#        Written by :    Brendan Tierney
+#
+# Published by : McGraw-Hill / Oracle Press
+#
+# Chapter 16 - Clustering
+
+column model_name format a22 
+column mining_function format a17 
+column algorithm format a20
+SELECT model_name, 
+       mining_function,  
+       algorithm,  
+       build_duration,  
+       model_size 
+FROM ALL_MINING_MODELS 
+WHERE mining_function = 'CLUSTERING';
+
+
+column setting_value format a20
+select setting_name, 
+       setting_value, 
+       setting_type 
+from  all_mining_model_settings 
+where model_name = 'CLUS_KM_1_19';
+
+
+column attribute_name format a25
+SELECT attribute_name,  
+       attribute_type,  
+       usage_type,  
+       target 
+from  all_mining_model_attributes 
+where model_name = 'CLUS_KM_1_19'; 
+
+
+-- create the settings table for a Decision Tree model
+CREATE TABLE demo_clus_kmeans_settings 
+( setting_name  VARCHAR2(30),
+  setting_value VARCHAR2(4000));
+
+-- insert the settings records for a k-Means Cluster model
+-- ADP is turned on. By default ADP is turned off.
+-- Set the number of clusters to generate to 10
+BEGIN
+  INSERT INTO demo_clus_kmeans_settings (setting_name, setting_value)
+  values (dbms_data_mining.algo_name, dbms_data_mining.ALGO_KMEANS);
+	
+  INSERT INTO demo_clus_kmeans_settings (setting_name, setting_value)
+  VALUES (dbms_data_mining.prep_auto, dbms_data_mining.PREP_AUTO_ON);
+	
+  INSERT INTO demo_clus_kmeans_settings (setting_name, setting_value)
+  VALUES (dbms_data_mining.clus_num_clusters, 10);
+END;
+
+SELECT *
+FROM   demo_clus_kmeans_settings;
+
+
+column setting_value format a35
+select * 
+from table(dbms_data_mining.get_default_settings) 
+where setting_name like 'KMNS%';
+
+
+-- Create a Cluster Model
+BEGIN 
+   DBMS_DATA_MINING.CREATE_MODEL( 
+      model_name          => 'CLUSTER_KMEANS_MODEL', 
+      mining_function     => dbms_data_mining.CLUSTERING, 
+      data_table_name     => 'INSUR_CUST_LTV_SAMPLE', 
+      case_id_column_name => 'CUSTOMER_ID', 
+      target_column_name  => null, 
+      settings_table_name => 'DEMO_CLUS_KMEANS_SETTINGS'); 
+END; 
+
+-- create the settings table for an O-Cluster model
+CREATE TABLE demo_clus_ocluster_settings 
+( setting_name  VARCHAR2(30),
+  setting_value VARCHAR2(4000));
+
+-- insert the settings records for an O-Cluster model
+-- ADP is turned on. By default ADP is turned off.
+-- Change the OCLT_SENSITIVITY setting to 0.3. The default value is 0.5
+-- Set the number of clusters to generate to 6
+BEGIN
+  INSERT INTO demo_clus_ocluster_settings (setting_name, setting_value)
+  values (dbms_data_mining.algo_name, dbms_data_mining.ALGO_OCLUSTER);
+
+  INSERT INTO demo_clus_ocluster_settings (setting_name, setting_value)
+  VALUES (dbms_data_mining.prep_auto, dbms_data_mining.PREP_AUTO_ON);
+
+  INSERT INTO demo_clus_ocluster_settings (setting_name, setting_value)
+  VALUES (dbms_data_mining.oclt_sensitivity, 0.3);
+
+  INSERT INTO demo_clus_ocluster_settings (setting_name, setting_value)
+  VALUES (dbms_data_mining.clus_num_clusters, 6);
+END;
+/
+
+BEGIN 
+   DBMS_DATA_MINING.CREATE_MODEL( 
+      model_name          => 'CLUSTER_OCLUSTER_MODEL', 
+      mining_function     => dbms_data_mining.CLUSTERING, 
+      data_table_name     => 'INSUR_CUST_LTV_SAMPLE', 
+      case_id_column_name => 'CUSTOMER_ID', 
+      target_column_name  => null, 
+      settings_table_name => 'DEMO_CLUS_OCLUSTER_SETTINGS'); 
+END; 
+
+
+-- Examine the cluster model
+column model_name format a22 
+column mining_function format a15 
+column algorithm format a15
+SELECT model_name,  
+       mining_function, 
+       algorithm, 
+       build_duration, 
+       model_size 
+FROM ALL_MINING_MODELS 
+WHERE model_name in ('CLUSTER_OCLUSTER_MODEL','CLUSTER_KMEANS_MODEL');
+
+
+break on model_name skip 1
+column model_name format a22
+column setting_name format a25
+column setting_value format a20
+select model_name,
+       setting_name, 
+       setting_value, 
+       setting_type 
+from  all_mining_model_settings 
+WHERE model_name in ('CLUSTER_OCLUSTER_MODEL','CLUSTER_KMEANS_MODEL')
+order by model_name;
+
+
+break on model_name skip 1
+column model_name format a22
+column attribute_name format a25
+SELECT model_name,
+       attribute_name
+from  all_mining_model_attributes 
+where model_name in ('CLUSTER_OCLUSTER_MODEL','CLUSTER_KMEANS_MODEL')
+order by model_name;
+
+
+-- Examine individual Clusters
+set pages 80
+set lines 90 
+column child format a40
+select id,  
+       record_count,  
+       parent,  
+       tree_level,  
+       child 
+from table(dbms_data_mining.get_model_details_km('CLUSTER_KMEANS_MODEL'));
+
+-- View the Centroids of the clusters
+column attribute_name format a25 
+column mode_value format a25
+select t.id, 
+       c.attribute_name,  
+       c.mean, 
+       c.mode_value, 
+       c.variance 
+from table (dbms_data_mining.get_model_details_KM('CLUSTER_KMEANS_MODEL')) t, 
+     table(t.centroid) c 
+where t.id = 7 
+order by c.attribute_name;
+
+
+-- View Cluster Rules
+column value format a20
+select t.id,  
+       a.attribute_name,  
+       a.conditional_operator, 
+       nvl(a.attribute_str_value, a.attribute_num_value)  value
+from TABLE(dbms_data_mining.get_model_details_km('CLUSTER_KMEANS_MODEL'))  t,  
+     TABLE(t.rule.antecedent)  a 
+where t.id = 7 
+ORDER BY t.id, a.attribute_name, attribute_support, attribute_confidence desc, value;
+
+
+-- Apply Cluster model to new data
+column customer_id format a15
+column cluster_id format a25
+column cluster_prob format 999.999
+column cluster_distance format 999.999
+SELECT customer_id, 
+       cluster_id(clus_km_1_19 USING *) as Cluster_Id, 
+       cluster_probability(clus_km_1_19 USING *) as cluster_Prob,
+       cluster_distance(clus_km_1_19 USING *) as cluster_Distance
+FROM   insur_cust_ltv_sample
+WHERE  customer_id in ('CU13386', 'CU6607', 'CU100');
+
+column customer_id format a15
+column cluster_id format a25
+column probability format 9.999999
+SELECT t.customer_id, s.cluster_id, s.probability
+FROM   (select customer_id, cluster_set(clus_km_1_19 USING *) as Cluster_Set
+        from   insur_cust_ltv_sample 
+         WHERE  customer_id in ('CU13386', 'CU100')) T,
+        TABLE(T.cluster_set) S
+order by t.customer_id, s.probability desc;
+
+column cluster_details format a50
+select cluster_details(clus_km_1_19, 14 USING *) as Cluster_Details
+from   insur_cust_ltv_sample 
+where  customer_id = 'CU13386';
+
+-- What-if Cluster analysis
+SELECT cluster_id(clus_km_1_19
+           USING 3 time_as_customer,
+                 0 has_children,
+                 3 n_of_dependents,
+                 'OK' state,
+                 1 n_trans_teller )  CLUSTER_ID,
+       cluster_probability(clus_km_1_19
+           USING 3 time_as_customer,
+                 0 has_children,
+                 3 n_of_dependents,
+                 'OK' state,
+                 1 n_trans_teller ) Cluster_Prob
+FROM dual;
+
+
+-- Applying Cluster model in Batch model
+BEGIN
+   dbms_data_mining.APPLY(model_name          => 'CLUS_KM_1_19',
+                          data_table_name     => 'INSUR_CUST_LTV_SAMPLE',
+                          case_id_column_name => 'CUSTOMER_ID',
+                          result_table_name   => 'DEMO_KMEANS_DATA'); 
+END; 
+/
+
+column customer_id format a20
+column cluster_id  format a25
+column probability format 999.999
+SELECT * 
+FROM   demo_kmeans_data
+WHERE  rownum <= 40
+order by customer_id, probability desc;
+
+

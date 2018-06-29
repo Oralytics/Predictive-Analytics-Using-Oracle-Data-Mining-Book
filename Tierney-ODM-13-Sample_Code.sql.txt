@@ -1,0 +1,343 @@
+#
+# Predictive Analytics using Oracle Data Miner
+#        Written by :    Brendan Tierney
+#
+# Published by : McGraw-Hill / Oracle Press
+#
+# Chapter 13 - Data Preparation
+
+-- SAMPLE function for sampling Data
+select count(*)
+from   mining_data_build_v
+SAMPLE (20);
+
+-- Sampling based on Block
+select count(*)
+from   mining_data_build_v
+SAMPLE BLOCK (20);
+
+-- Sampling based on Seed
+select count(*)
+from   mining_data_build_v
+SAMPLE (20) SEED (124);
+
+-- Sampling using ORA_HASH function
+create view BUILD_DATA_SET_V
+as select * from mining_data_build_v
+where ORA_HASH(CUST_ID, 99, 0) <= 60;
+
+create view TEST_DATA_SET_V
+as select * from mining_data_build_v
+where ORA_HASH(CUST_ID, 99, 0) > 60;
+
+-- Aggregating data
+select customer, quarter, sum(amount_sold)
+from   sales_view
+where  customer in (942, 1255, 1267)
+group by customer, quarter
+order by customer, quarter;
+
+-- Using the PIVOT command
+SELECT *
+FROM
+  (SELECT customer, quarter, quantity_sold
+   FROM sales_view
+   where  customer in (942, 1255, 1267)) 
+     PIVOT (sum(quantity_sold) 
+     FOR quarter IN ('01', '02', '03', '04'))
+ORDER BY customer;
+
+
+-- Creating a Histogram of data
+SELECT cust_id, 
+       age, 
+       width_bucket(age, 
+                    (SELECT min(age) from mining_data_build_v), 
+                    (select max(age)+1 from mining_data_build_v), 
+                    10)  bucket 
+from mining_data_build_v 
+group by cust_id, age; 
+
+-- Creating categories
+select cust_id, age,
+   case
+      when age between 0 and 18 then 'Too Young'
+      when age between 19 and 45 then 'Adult'
+      when age between 26 and 55 then 'Middle Aged'
+      when age between 56 and 64 then 'Pension Planners'
+      when age between 65 and 105 then 'Pensioners'
+   end    AGE_BIN
+from mining_data_build_v;
+
+-- Setting up Automatic Data Preparation in the Settings table
+-- create the settings table for a Decision Tree model
+CREATE TABLE demo_class_dt_settings 
+( setting_name  VARCHAR2(30),
+  setting_value VARCHAR2(4000));
+
+-- insert the settings records for a Decision Tree
+-- Decision Tree algorithm. By Default Naive Bayes is used for classification
+-- ADP is turned on. By default ADP is turned off.
+BEGIN
+  INSERT INTO demo_class_dt_settings (setting_name, setting_value)
+  values (dbms_data_mining.algo_name, dbms_data_mining.algo_decision_tree);
+	
+  INSERT INTO demo_class_dt_settings (setting_name, setting_value)
+  VALUES (dbms_data_mining.prep_auto,dbms_data_mining.prep_auto_on);
+END;
+
+
+-- Using the DBMS_DATA_MINING_TRANSFORM package
+-- Transform missing data for numeric attributes
+-- Stage 1 : Create the tables that will store the 
+--    transformed missing data for numeric and categorical
+--    attributes.
+-- Stage 2 : Perform the transformations
+--    Exclude any attributes you don't want transformed
+--      e.g. the case id and the target attribute 
+BEGIN
+   --
+   -- Clean-up : Drop the previously created tables
+   --
+   BEGIN
+      execute immediate 'drop table TRANSFORM_MISSING_NUMERIC';
+   EXCEPTION 
+      WHEN others THEN
+         null;
+   END;
+   BEGIN
+      execute immediate 'drop table TRANSFORM_MISSING_CATEGORICAL';
+   EXCEPTION 
+      WHEN others THEN
+         null;
+   END;
+
+   -- 
+   -- Transform the numeric attributes
+   --
+   dbms_data_mining_transform.CREATE_MISS_NUM (
+      miss_table_name => 'TRANSFORM_MISSING_NUMERIC');
+
+   dbms_data_mining_transform.INSERT_MISS_NUM_MEAN (
+    miss_table_name => 'TRANSFORM_MISSING_NUMERIC',
+    data_table_name => 'MINING_DATA_BUILD_V',
+    exclude_list    => DBMS_DATA_MINING_TRANSFORM.COLUMN_LIST (
+                       'affinity_card',
+                       'cust_id'));
+
+   --
+   -- Transform the categorical attributes
+   --
+   dbms_data_mining_transform.CREATE_MISS_CAT (
+      miss_table_name => 'TRANSFORM_MISSING_CATEGORICAL');
+
+   dbms_data_mining_transform.INSERT_MISS_CAT_MODE (
+      miss_table_name => 'TRANSFORM_MISSING_CATEGORICAL',
+      data_table_name => 'MINING_DATA_BUILD_V',
+      exclude_list    => DBMS_DATA_MINING_TRANSFORM.COLUMN_LIST (
+                         'affinity_card',
+                         'cust_id'));
+END;
+
+column col format a25
+column val format a25
+select col, val from transform_missing_categorical;
+
+
+-- Handling missing data
+BEGIN
+   -- xform input data to replace missing values
+   -- The data source is MINING_DATA_BUILD_V
+   -- The output is MINING_DATA_MISS_V
+   DBMS_DATA_MINING_TRANSFORM.XFORM_MISS_NUM(
+      miss_table_name => 'TRANSFORM_MISSING_NUMERIC',
+      data_table_name => 'MINING_DATA_BUILD_V',
+      xform_view_name => 'MINING_DATA_MISS_V');
+
+   -- xform input data to replace missing values
+   -- The data source is MINING_DATA_MISS_V
+   -- The output is MINING_DATA_V
+   DBMS_DATA_MINING_TRANSFORM.XFORM_MISS_CAT(
+      miss_table_name => 'TRANSFORM_MISSING_CATEGORICAL',
+      data_table_name => 'MINING_DATA_MISS_V',
+      xform_view_name => 'MINING_DATA_V');
+END;
+
+-- Handling Outliers
+BEGIN
+   -- Clean-up : Drop the previously created tables
+   BEGIN
+      execute immediate 'drop table TRANSFORM_OUTLIER';
+   EXCEPTION 
+      WHEN others THEN
+         null;
+   END;
+
+   -- Stage 1 : Create the table for the transformations
+   -- Perform outlier treatment for: AGE and YRS_RESIDENCE
+   -- 
+   DBMS_DATA_MINING_TRANSFORM.CREATE_CLIP (
+      clip_table_name => 'TRANSFORM_OUTLIER');
+
+   -- Stage 2 : Transform the categorical attributes
+   --   Exclude the number attributes you do not want transformed
+   DBMS_DATA_MINING_TRANSFORM.INSERT_CLIP_WINSOR_TAIL (
+      clip_table_name => 'TRANSFORM_OUTLIER',
+      data_table_name => 'MINING_DATA_V',
+      tail_frac       => 0.025,
+      exclude_list    => DBMS_DATA_MINING_TRANSFORM.COLUMN_LIST (
+                          'affinity_card',
+                          'bookkeeping_application',
+                          'bulk_pack_diskettes',
+                          'cust_id',
+                          'flat_panel_monitor',
+                          'home_theater_package',
+                          'os_doc_set_kanji',
+                          'printer_supplies',
+                          'y_box_games'));
+
+   -- Stage 3 : Create the view with the transformed data
+   DBMS_DATA_MINING_TRANSFORM.XFORM_CLIP(
+      clip_table_name => 'TRANSFORM_OUTLIER',
+      data_table_name => 'MINING_DATA_V',
+      xform_view_name => 'MINING_DATA_V_2');
+END;
+
+-- Normalize data 
+BEGIN
+   -- Clean-up : Drop the previously created tables
+   BEGIN
+      execute immediate 'drop table TRANSFORM_NORMALIZE';
+   EXCEPTION 
+      WHEN others THEN
+         null;
+   END;
+
+   -- Stage 1 : Create the table for the transformations
+   -- Perform normalization for: AGE and YRS_RESIDENCE
+   dbms_data_mining_transform.CREATE_NORM_LIN (
+      norm_table_name => 'MINING_DATA_NORMALIZE');        
+
+   -- Step 2 : Insert the normalization data into the table
+   dbms_data_mining_transform.INSERT_NORM_LIN_MINMAX (
+      norm_table_name => 'MINING_DATA_NORMALIZE',
+      data_table_name => 'MINING_DATA_V_2',
+      exclude_list    => DBMS_DATA_MINING_TRANSFORM.COLUMN_LIST (
+                         'affinity_card',
+                         'bookkeeping_application',
+                         'bulk_pack_diskettes',
+                         'cust_id',
+                         'flat_panel_monitor',
+                         'home_theater_package',
+                         'os_doc_set_kanji',
+                         'printer_supplies',
+                         'y_box_games'));
+
+   -- Stage 3 : Create the view with the transformed data
+   DBMS_DATA_MINING_TRANSFORM.XFORM_NORM_LIN (
+      norm_table_name => 'MINING_DATA_NORMALIZE',
+      data_table_name => 'MINING_DATA_V_2',
+      xform_view_name => 'MINING_DATA_READY_V');
+
+END;
+
+-- Add transformations to model creation
+-- create the settings table for a Decision Tree model
+CREATE TABLE demo_class_dt_settings 
+( setting_name  VARCHAR2(30),
+  setting_value VARCHAR2(4000));
+
+-- insert the settings records for a Decision Tree
+-- Decision Tree algorithm. By Default Naive Bayes is used for classification
+-- ADP is turned on. By default ADP is turned off.
+BEGIN
+  INSERT INTO demo_class_dt_settings (setting_name, setting_value)
+  values (dbms_data_mining.algo_name, dbms_data_mining.algo_decision_tree);
+	
+  INSERT INTO demo_class_dt_settings (setting_name, setting_value)
+  VALUES (dbms_data_mining.prep_auto,dbms_data_mining.prep_auto_on);
+END;
+
+BEGIN 
+   DBMS_DATA_MINING.CREATE_MODEL( 
+      model_name 		=> 'DEMO_CLASS_DT_MODEL', 
+      mining_function 	=> dbms_data_mining.classification, 
+      data_table_name 	=> 'MINING_DATA_READY_V', 
+      case_id_column_name 	=> 'cust_id', 
+      target_column_name 	=> 'affinity_card', 
+      settings_table_name 	=> 'demo_class_dt_settings'); 
+END;
+
+
+-- Creating a transformations list
+DECLARE
+   transform_stack   dbms_data_mining_transform.TRANSFORM_LIST;
+BEGIN
+   dbms_data_mining_transform.SET_TRANSFORM(transform_stack, 
+                                            'BOOKKEEPING_APPLICATION', 
+                                            NULL, 
+                                            'to_char(BOOKKEEPING_APPLICATION)', 
+                                            'to_number(BOOKKEEPING_APPLICATION)', 
+                                            NULL); 
+END;
+
+DECLARE
+   transform_stack   dbms_data_mining_transform.TRANSFORM_LIST;
+BEGIN
+   -- Define the transformation list
+   dbms_data_mining_transform.SET_TRANSFORM(transform_stack, 
+                                            'BOOKKEEPING_APPLICATION', 
+                                            NULL, 
+                                            'to_char(BOOKKEEPING_APPLICATION)', 
+                                            'to_number(BOOKKEEPING_APPLICATION)', 
+                                            NULL); 
+   -- Create the data mining model
+   DBMS_DATA_MINING.CREATE_MODEL( 
+      model_name 		=> 'DEMO_TRANSFORM_MODEL', 
+      mining_function 		=> dbms_data_mining.classification, 
+      data_table_name 		=> 'MINING_DATA_BUILD_V', 
+      case_id_column_name 	=> 'cust_id', 
+      target_column_name 	=> 'affinity_card', 
+      settings_table_name 	=> 'demo_class_dt_settings',
+      xform_list                => transform_stack); 
+END;
+
+DECLARE
+   transform_stack   dbms_data_mining_transform.TRANSFORM_LIST;
+BEGIN
+   -- Stack the missing numeric transformations
+   dbms_data_mining_transform.STACK_MISS_NUM (
+          miss_table_name   => 'TRANSFORM_MISSING_NUMERIC',
+          xform_list        => transform_stack);
+
+   -- Stack the missing categorical transformations
+   dbms_data_mining_transform.STACK_MISS_CAT (
+          miss_table_name   => 'TRANSFORM_MISSING_CATEGORICAL',
+          xform_list        => transform_stack);
+
+   -- Stack the outlier treatment for AGE
+   dbms_data_mining_transform.STACK_CLIP (
+          clip_table_name   => 'TRANSFORM_OUTLIER',
+          xform_list        => transform_stack);
+
+   -- Stack the normalization transformation
+   dbms_data_mining_transform.STACK_NORM_LIN (
+          norm_table_name   => 'MINING_DATA_NORMALIZE',
+          xform_list        => transform_stack);
+
+   -- Create the data mining model
+   DBMS_DATA_MINING.CREATE_MODEL( 
+      model_name 		=> 'DEMO_STACKED_MODEL', 
+      mining_function 	=> dbms_data_mining.classification, 
+      data_table_name 	=> 'MINING_DATA_BUILD_V', 
+      case_id_column_name 	=> 'cust_id', 
+      target_column_name 	=> 'affinity_card', 
+      settings_table_name 	=> 'demo_class_dt_settings',
+      xform_list           => transform_stack); 
+END;
+
+SELECT TO_CHAR(expression) 
+FROM TABLE (dbms_data_mining.GET_MODEL_TRANSFORMATIONS('DEMO_STACKED_MODEL'));
+
+
+

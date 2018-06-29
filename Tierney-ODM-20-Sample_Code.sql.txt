@@ -1,0 +1,82 @@
+#
+# Predictive Analytics using Oracle Data Miner
+#        Written by :    Brendan Tierney
+#
+# Published by : McGraw-Hill / Oracle Press
+#
+# Chapter 20 - Implementation Related Topics
+
+CREATE or REPLACE VIEW  HE_FIRST_YEAR_PREDICTION as
+SELECT st_pk, 
+       prediction(clas_decision_tree using *) WITHDRAW_PREDICTION, 
+       prediction_probability(clas_decision_tree using *) WITHDRAW_PROBABILITY 
+FROM   HE_STUDENT_DATA
+WHERE  ACAD_YEAR = 1;
+
+
+SELECT /*+ PARALLEL(mining_data_apply_v, 4) */
+       cust_id,
+       PREDICTION(DEMO_CLASS_DT_MODEL USING *)  Pred,
+       PREDICTION_PROBABILITY(DEMO_CLASS_DT_MODEL USING *) Prob
+FROM   mining_data_apply_v
+WHERE  rownum <= 18
+
+
+create or replace procedure score_data
+is
+begin
+    dbms_data_mining.apply(
+     model_name => 'DEMO_CLASS_DT_MODEL',
+     data_table_name => 'NEW_DATA_TO_SCORE',
+     case_id_column_name => 'CUST_ID',
+     result_table_name => 'NEW_DATA_SCORED');
+end;
+
+
+BEGIN
+  -- Create the TASK
+  DBMS_PARALLEL_EXECUTE.CREATE_TASK ('ODM_SCORE_DATA');
+END;
+
+
+BEGIN
+
+-- Chunk the table by ROWID
+DBMS_PARALLEL_EXECUTE.CREATE_CHUNKS_BY_ROWID('ODM_SCORE_DATA', 'DMUSER', 'NEW_DATA_TO_SCORE', true, 100);
+END;
+
+DECLARE
+   l_sql_stmt   varchar2(200);
+BEGIN
+   -- Execute the DML in parallel
+   l_sql_stmt := 'begin score_data(); end;'; 
+   
+   DBMS_PARALLEL_EXECUTE.RUN_TASK('ODM_SCORE_DATA', l_sql_stmt, DBMS_SQL.NATIVE,
+                                  parallel_level => 10);
+END;
+
+
+BEGIN
+   dbms_parallel_execute.drop_task('ODM_SCORE_DATA');
+END;
+
+
+-- Predictive Queries
+select cust_id, affinity_card, pred_affinity_card
+from (select cust_id, 
+             affinity_card,
+             PREDICTION( FOR to_char(affinity_card) USING *) OVER (PARTITION BY "CUST_GENDER") pred_affinity_card
+        from mining_data_build_v)
+where rownum <= 15;
+
+
+select cust_id, affinity_card, pred_affinity_card
+from (select cust_id,
+             affinity_card,
+             PREDICTION( FOR to_char(affinity_card) USING *) OVER () pred_affinity_card
+        from mining_data_build_v)
+where rownum <= 15;
+
+
+
+

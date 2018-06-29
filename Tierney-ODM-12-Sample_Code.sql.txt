@@ -1,0 +1,86 @@
+#
+# Predictive Analytics using Oracle Data Miner
+#        Written by :    Brendan Tierney
+#
+# Published by : McGraw-Hill / Oracle Press
+#
+# Chapter 12 - ODM Data Dictionary, SQL and PL/SQL Packages
+
+-- List ODM Models that are of type Classification
+column model_name format a25
+SELECT model_name, 
+       algorithm, 
+       build_duration, 
+       model_size 
+FROM ALL_MINING_MODELS
+WHERE mining_function = 'CLASSIFICATION';
+
+
+-- Using some of the SQL functions for ODM
+column probability format 9.9999
+SELECT cust_id,
+       prediction(CLAS_GLM_1_13 USING *)  predicted_value,
+       prediction_probability(CLAS_GLM_1_13 USING *) probability
+FROM   mining_data_apply_v;
+
+
+-- Using the EXPLAIN function
+BEGIN 
+    DBMS_PREDICTIVE_ANALYTICS.EXPLAIN( 
+        data_table_name      => 'mining_data_build_v', 
+        explain_column_name  => 'affinity_card', 
+        result_table_name    => 'PA_EXPLAIN'); 
+END; 
+
+column attribute_name format a25
+select attribute_name, explanatory_value, rank
+from   pa_explain;
+
+
+-- Using the PREDICT function
+set serveroutput on
+DECLARE 
+   v_accuracy NUMBER(10,9); 
+BEGIN 
+   DBMS_PREDICTIVE_ANALYTICS.PREDICT( 
+      accuracy => v_accuracy, 
+      data_table_name => 'mining_data_build_v', 
+      case_id_column_name => 'cust_id', 
+      target_column_name => 'affinity_card', 
+      result_table_name => 'PA_PREDICT'); 
+   DBMS_OUTPUT.PUT_LINE('Accuracy of model = ' || v_accuracy); 
+END;
+
+column probability format 9.9999
+SELECT * FROM PA_PREDICT
+WHERE rownum <= 12;
+
+
+SELECT v.cust_id, 
+       v.affinity_card, 
+       p.prediction, 
+       p.probability 
+FROM   mining_data_build_v  v, 
+       pa_predict p 
+WHERE  v.cust_id = p.cust_id 
+AND    rownum <= 12; 
+
+
+-- Using the Profile function
+BEGIN 
+   DBMS_PREDICTIVE_ANALYTICS.PROFILE( 
+      DATA_TABLE_NAME    => 'mining_data_build_V', 
+      TARGET_COLUMN_NAME => 'affinity_card', 
+      RESULT_TABLE_NAME  => 'PA_PROFILE'); 
+END;
+
+SET trimspool ON
+SET pages 10000
+SET long 10000
+SET pagesize 10000
+SET linesize 90
+SELECT *
+FROM pa_profile
+where rownum <= 3;
+
+

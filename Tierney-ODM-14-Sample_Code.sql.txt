@@ -1,0 +1,100 @@
+#
+# Predictive Analytics using Oracle Data Miner
+#        Written by :    Brendan Tierney
+#
+# Published by : McGraw-Hill / Oracle Press
+#
+# Chapter 14 - Association Rule Analysis
+
+
+-- Create view with composite case id
+CREATE VIEW ASSOC_DATA_V AS ( 
+   SELECT CUST_ID||TIME_ID CASE_ID, 
+          t.PROD_ID 
+   FROM SH.SALES t );
+
+-- create the settings table for the Association Rules model
+CREATE TABLE demo_ar_settings 
+( setting_name  VARCHAR2(30),
+  setting_value VARCHAR2(4000));
+
+-- insert the settings records for the Apriori Algorithm
+BEGIN
+   insert INTO demo_ar_settings (setting_name, setting_value) VALUES 
+   (dbms_data_mining.algo_name, dbms_data_mining.ALGO_APRIORI_ASSOCIATION_RULES);
+
+   insert into demo_ar_settings (setting_name, setting_value) VALUES
+   (dbms_data_mining.prep_auto, dbms_data_mining.prep_auto_off);
+
+   insert into demo_ar_settings (setting_name, setting_value) VALUES
+   (dbms_data_mining.ODMS_ITEM_ID_COLUMN_NAME, 'PROD_ID');
+
+   insert into demo_ar_settings (setting_name, setting_value) VALUES 
+   (dbms_data_mining.ASSO_MIN_SUPPORT, 0.01);
+END;
+
+
+-- Select from the settings table to see the records
+SELECT *
+FROM   demo_ar_settings;
+
+-- Create an Associations Rules Model
+BEGIN 
+   DBMS_DATA_MINING.CREATE_MODEL(  
+      model_name          => 'ASSOC_MODEL_2',  
+      mining_function     => DBMS_DATA_MINING.ASSOCIATION,  
+      data_table_name     => 'ASSOC_DATA_V',  
+      case_id_column_name => ‘CASE_ID’,  
+      target_column_name  => null,  
+      settings_table_name => 'demo_ar_settings');
+END;
+
+--
+-- Select all the Item Set for the ASSOC_MODEL_2 model
+--
+SELECT itemset_id, items, support, number_of_items 
+FROM TABLE(DBMS_DATA_MINING.GET_FREQUENT_ITEMSETS('assoc_model_2'));
+
+--
+-- Select all the top 10% of Item Set based on the Support value
+--
+SELECT itemset_id, items, support, number_of_items 
+FROM TABLE(DBMS_DATA_MINING.GET_FREQUENT_ITEMSETS('assoc_model_2', 10));
+
+--
+-- Select all the Item Sets that have up to a maximum of 3 items 
+--
+SELECT itemset_id, items, support, number_of_items 
+FROM TABLE(DBMS_DATA_MINING.GET_FREQUENT_ITEMSETS('assoc_model_2',null, 3));
+
+
+--
+-- Select all the Item Set for the ASSOC_MODEL_2 model
+--
+SELECT rule_id, antecedent, consequent, rule_support, rule_confidence 
+FROM TABLE(DBMS_DATA_MINING.GET_ASSOCIATION_RULES('assoc_model_2'));
+
+--
+-- Select all the top 10% of Item Set based on the Support value
+--
+SELECT rule_id, antecedent, consequent, rule_support, rule_confidence 
+FROM TABLE(DBMS_DATA_MINING.GET_ASSOCIATION_RULES('assoc_model_2', 10));
+
+--
+-- Select all the Item Sets that have 2 or 3 items 
+--
+SELECT rule_id, antecedent, consequent, rule_support, rule_confidence 
+FROM TABLE(DBMS_DATA_MINING.GET_ASSOCIATION_RULES('assoc_model_2', null, null, null, null, 3, 2));
+
+
+-- Get the association rules
+SELECT a.attribute_name, a.conditional_operator oper, a.attribute_subname,
+       b.attribute_name, b.conditional_operator coper, b.attribute_subname
+FROM TABLE(DBMS_DATA_MINING.GET_ASSOCIATION_RULES('assoc_model_2')) t,
+           table(t.antecedent) a,
+           table(t.consequent) b
+where t.rule_id = 18273;
+
+
+
+

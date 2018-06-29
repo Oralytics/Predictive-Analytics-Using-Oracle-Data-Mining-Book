@@ -1,0 +1,109 @@
+#
+# Predictive Analytics using Oracle Data Miner
+#        Written by :    Brendan Tierney
+#
+# Published by : McGraw-Hill / Oracle Press
+#
+# Chapter 19 - How to migrate your models
+
+GRANT CREATE ANY DIRECTORY TO DMUSER;
+
+CREATE OR REPLACE DIRECTORY DataMiningDir AS '/u01/app/Data_Mining_Exports';
+
+-- Exporting models
+BEGIN
+   DBMS_DATA_MINING.EXPORT_MODEL('Exported_DM_Models', 'DataMiningDir');
+END;
+
+
+BEGIN
+   DBMS_DATA_MINING.EXPORT_MODEL('Exported_CLASS_Models', 'DataMiningDir', 'FUNCTION_NAME = ''CLASSIFICATION''');
+END;
+
+BEGIN
+   DBMS_DATA_MINING.EXPORT_MODEL('Exported_DEMO_CLASS_Models', 'DataMiningDir', 'name= ''DEMO_CLASS_DT_MODEL''');
+END;
+
+BEGIN
+   DBMS_DATA_MINING.EXPORT_MODEL('Exported_DEMO_Models', 'DataMiningDir', 'name IN (''DEMO_CLASS_DT_MODEL'', ''CLUSTER_KMEANS_MODEL'')');
+END;
+
+
+-- Importing models
+BEGIN
+   DBMS_DATA_MINING.IMPORT_MODEL(
+        'Exported_DM_Models01.DMP', 
+        'DataMiningDir', 
+        null, 
+        'IMPORT', 
+        null, 
+        null, 
+        'DMUSER:DMUSER2',
+        null);
+END;
+
+
+BEGIN
+   DBMS_DATA_MINING.IMPORT_MODEL(
+        filename =>'Exported_DM_Models01.DMP', 
+        directory => 'DataMiningDir', 
+        schema_remap => 'DMUSER:DMUSER2');
+END;
+
+
+BEGIN
+   DBMS_DATA_MINING.IMPORT_MODEL(
+        filename =>'Exported_DM_Models01.DMP', 
+        directory => 'DataMiningDir', 
+        model_filter => 'DEMO_CLASS_DT_MODEL',
+        schema_remap => 'DMUSER:DMUSER2');
+END;
+
+
+BEGIN
+   DBMS_DATA_MINING.IMPORT_MODEL(
+        filename =>'Exported_DM_Models01.DMP', 
+        directory => 'DataMiningDir', 
+        model_filter => 'name in (''DEMO_CLASS_DT_MODEL'', ''CLUSTER_KMEANS_MODEL'')',
+        schema_remap => 'DMUSER:DMUSER2');
+END;
+
+
+-- Dropping a model
+BEGIN
+  DBMS_DATA_MINING.DROP_MODEL('DEMO_CLASS_DT_MODEL');
+END;
+
+set serveroutput on
+DECLARE
+   CURSOR odm_drop IS SELECT model_name 
+                      FROM user_mining_models
+                      WHERE mining_function = ‘CLUSTERING’;
+BEGIN
+   FOR r_drop IN odm_drop LOOP
+      Dbms_output.put_line(‘Dropping model : ‘||r_drop.model_name);
+  DBMS_DATA_MINING.DROP_MODEL(r_drop.model_name);
+   END LOOP;
+END;
+
+
+-- Renaming a model
+BEGIN
+  DBMS_DATA_MINING.RENAME_MODEL('DEMO_CLASS_DT_MODEL', 'CHURN_MODEL');
+END;
+
+
+BEGIN
+   -- Import the new ODM Model
+   DBMS_DATA_MINING.IMPORT_MODEL(
+        filename =>'Exported_DM_Models01.DMP', 
+        directory => 'DataMiningDir', 
+        model_filter => 'DEMO_CLASS_DT_MODEL',
+        schema_remap => 'DMUSER:DMUSER2');
+
+  -- Drop the existing production model 
+  DBMS_DATA_MINING.DROP_MODEL('CHURN_MODEL');
+   -- Rename the imported model to the production name
+   DBMS_DATA_MINING.RENAME_MODEL('DEMO_CLASS_DT_MODEL', 'CHURN_MODEL');
+END;
+

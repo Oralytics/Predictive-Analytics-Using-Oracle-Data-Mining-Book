@@ -1,0 +1,138 @@
+#
+# Predictive Analytics using Oracle Data Miner
+#        Written by :    Brendan Tierney
+#
+# Published by : McGraw-Hill / Oracle Press
+#
+# Chapter 18 - Anomaly Detection
+
+-- How to view Anomaly Detection models
+column model_name format a22 
+column mining_function format a17 
+column algorithm format a23
+SELECT a.model_name, 
+       a.mining_function,  
+       a.algorithm,  
+       a.build_duration,  
+       a.model_size 
+FROM  ALL_MINING_MODELS          A,
+      ALL_MINING_MODEL_SETTINGS  B
+WHERE a.model_name = b.model_name
+AND   a.algorithm = 'SUPPORT_VECTOR_MACHINES'
+AND   b.setting_name = 'SVMS_OUTLIER_RATE';
+
+
+-- View model settings
+column setting_value format a30
+SELECT setting_name, 
+       setting_value, 
+       setting_type
+FROM  all_mining_model_settings
+WHERE model_name = 'ANOM_SVM_1_19';
+
+SELECT attribute_name,
+       attribute_type,
+       usage_type,
+       target
+from  all_mining_model_attributes
+where model_name = 'ANOM_SVM_1_19';
+
+
+-- create the settings table for an Anomaly Detection model
+CREATE TABLE demo_anomaly_settings 
+( setting_name  VARCHAR2(30),
+  setting_value VARCHAR2(4000));
+
+-- insert the settings records for Anomaly Detection
+-- Support Vector Machine algorithm.
+-- ADP is turned on. By default ADP is turned off.
+-- Outlier Rate is set to 0.05. By default the outlier rate is 0.1 or 10%
+BEGIN
+  INSERT INTO demo_anomaly_settings (setting_name, setting_value)
+  values (dbms_data_mining.algo_name, dbms_data_mining.algo_support_vector_machines);
+	
+  INSERT INTO demo_anomaly_settings (setting_name, setting_value)
+  VALUES (dbms_data_mining.prep_auto,dbms_data_mining.prep_auto_on);
+
+  INSERT INTO demo_anomaly_settings (setting_name, setting_value)
+  VALUES (dbms_data_mining.svms_outlier_rate, 0.05);
+END;
+
+column setting_name format a30
+column setting_value format a30
+SELECT *
+FROM   demo_anomaly_settings;
+
+
+-- Create the model
+BEGIN 
+   DBMS_DATA_MINING.CREATE_MODEL( 
+      model_name 		=> 'DEMO_ANOMALY_MODEL', 
+      mining_function	     	=> dbms_data_mining.classification, 
+      data_table_name 	=> 'CLAIMS', 
+      case_id_column_name 	=> 'POLICYNUMBER', 
+      target_column_name 	=> NULL, 
+      settings_table_name 	=> 'demo_anomaly_settings'); 
+END;
+
+
+break on model_name
+column model_name format a25
+column setting_value format a28
+SELECT model_name,
+       setting_name, 
+       setting_value, 
+       setting_type
+FROM  all_mining_model_settings
+WHERE model_name in ('ANOM_SVM_1_19', 'DEMO_ANOMALY_MODEL');
+
+
+column class format a5
+column aname format a20
+column aval format a30
+SELECT class, attribute_name aname, attribute_value aval, coefficient coeff
+    FROM TABLE(DBMS_DATA_MINING.GET_MODEL_DETAILS_SVM('ANOM_SVM_1_19'))  a,
+         TABLE(a.attribute_set) b
+order by coefficient desc;
+
+
+-- Use the model in real-time
+column prob format 9.9999
+SELECT POLICYNUMBER, 
+       PROB 
+FROM (
+   SELECT POLICYNUMBER,
+          prediction_probability(ANOM_SVM_1_19, 0 using *) prob
+   FROM   CLAIMS
+   ORDER BY prediction_probability(ANOM_SVM_1_19, 0 using *) DESC, 1)
+WHERE rownum <= 10;
+
+
+-- What-if analysis
+column predicted_prob format 9.9999
+SELECT prediction(DEMO_ANOMALY_MODEL
+           USING 'FORD' AS MAKE, 
+                 '5YEARS' AS AGEOFVEHICLE, 
+                  'more than 69_000' AS VEHICLEPRICE, 
+                  '26to30' AS AGEOFPOLICYHOLDER, 
+                  'Sport' AS VECHICLECATEGORY)  Predicted_Value,
+       prediction_probability(DEMO_ANOMALY_MODEL
+           USING 'FORD' AS MAKE, 
+                 '5YEARS' AS AGEOFVEHICLE, 
+                  'more than 69_000' AS VEHICLEPRICE, 
+                  '26to30' AS AGEOFPOLICYHOLDER, 
+                  'Sport' AS VECHICLECATEGORY) Predicted_Prob
+FROM dual;
+
+-- Use the model in batch
+BEGIN
+   dbms_data_mining.APPLY(model_name          => 'DEMO_ANOMALY_MODEL',
+                          data_table_name     => 'CLAIMS',
+                          case_id_column_name => 'POLICYNUMBER',
+                          result_table_name   => 'DEMO_CLAIMS_SCORED'); 
+END; 
+
+select * 
+from   demo_claims_scored 
+where rownum <=10;
+
